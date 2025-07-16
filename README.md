@@ -1,17 +1,22 @@
-# WorldPopPy <img src="worldpoppy/assets/icon.png" alt="icon" width="60" height="60"/>
+# WorldPopPy <img src="worldpoppy/assets/icon.png" alt="WorldPopPy icon" width="60" height="60"/>
+
+*A Python package for downloading and pre-processing WorldPop raster data for any region on earth*
+
+<!-- 
+Keywords: WorldPop Python package, download and combine WorldPop datasets, global raster data, population rasters, land cover rasters, night lights imagery, Python GIS toolkit
+-->
 
 [![PyPI Latest Release](https://img.shields.io/pypi/v/WorldPopPy.svg)](https://pypi.org/project/WorldPopPy/)
 [![License](https://img.shields.io/badge/license-MPL_2.0-green.svg)](https://github.com/lungoruscello/WorldPopPy/blob/master/LICENSE.txt)
 
-**WorldPopPy** is a Python package that helps you work with data from the [WorldPop project](https://www.worldpop.org/).
-WorldPop offers [global, gridded geo-datasets](https://www.worldpop.org/datacatalog/) on population dynamics, land-cover
-features, night-light emissions, and several other attributes of human and natural geography.
-This package streamlines the process of downloading, combining, and cleaning WorldPop data for
-different geographic regions and years.
+**WorldPopPy** is a Python package that helps you work with geospatial data from the [WorldPop project](https://www.worldpop.org/).
+WorldPop offers [global, gridded geo-datasets](https://www.worldpop.org/datacatalog/) on population dynamics, land-cover features, night-light emissions, 
+and several other attributes of human and natural geography. This package streamlines the process of downloading, combining, 
+and cleaning WorldPop data for different geographic regions and years.
 
 ## Key Features
 
-* Fetch data for any part of the world by passing GeoDataFrames, country codes, or bounding boxes.
+* Fetch data for any region on earth by passing GeoDataFrames, country codes, or bounding boxes.
 * Easy handling of annual time-series through integration with [`xarray`](https://docs.xarray.dev/en/stable/).
 * Parallel data downloads with retry mechanism and ability to preview estimated download sizes (dry run).
 * Auto-updating manifest file so you stay up-to-date with WorldPop’s latest available datasets.
@@ -56,7 +61,7 @@ clean_axis(title='Night Lights (2015)\nKorean Peninsula')
 plt.show()
 ```
 
-<img src="worldpoppy/assets/korea_viirs.png" alt="Night Lights Korea" width="280"/> 
+<img src="worldpoppy/assets/korea_viirs.png" alt="Night light emissions in Korean Peninsula, 2015" width="280"/> 
 
 ## More detailed example
 
@@ -101,7 +106,7 @@ plot_location_markers(['Accra', 'Kumasi', 'Lomé'], to_crs=aeqa_africa)
 plt.show()
 ```
 
-<img src="worldpoppy/assets/accra_pop.png" alt="Pop. Change Accra, Lomé" width="400"/> 
+<img src="worldpoppy/assets/accra_pop.png" alt="Population change in Accra and Lomé region, 2000 to 2020" width="400"/> 
 
 ## Further details
 
