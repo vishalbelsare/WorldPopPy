@@ -52,7 +52,8 @@ docs = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/lungoruscello/worldpoppy"
+Source = "https://github.com/lungoruscello/worldpoppy"
+Documentation = "https://worldpoppy.readthedocs.io/en/stable/"
 
 [tool.setuptools]
 packages = ["worldpoppy"]
