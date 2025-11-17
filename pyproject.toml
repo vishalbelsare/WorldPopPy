@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "WorldPopPy"
-version = "0.2.0"
+version = "0.3.0"  # beware: not auto-synced with "worldpoppy/__init__.py"
 description = "Library to help you work with WorldPop data for any region on earth"
 readme = "readme_pypi.md"
 requires-python = ">=3.10"
@@ -60,6 +60,8 @@ packages = ["worldpoppy"]
 
 [tool.setuptools.package-data]
 worldpoppy = [
+  "assets/manifest.feather",
+  "assets/raw_manifest_hash.txt",
   "assets/level0_500m_2000_2020_simplified_world.feather",
   "assets/italian_regions_simplified.feather"
 ]

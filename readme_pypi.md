@@ -1,15 +1,20 @@
 # WorldPopPy README
 
+*A Python package for downloading and pre-processing WorldPop raster data for any region on earth*
 
-**WorldPopPy** is a Python package that helps you work with data from the [WorldPop project](https://www.worldpop.org/).
-WorldPop offers [global, gridded geo-datasets](https://www.worldpop.org/datacatalog/) on population dynamics, land-cover
-features, night-light emissions, and several other attributes of human and natural geography.
-This package streamlines the process of downloading, combining, and cleaning WorldPop data for
-different geographic regions and years.
+<!-- 
+Keywords: WorldPop Python package, download and combine WorldPop datasets, global raster data, population rasters, land cover rasters, night lights imagery, Python GIS toolkit
+-->
+
+
+**WorldPopPy** is a Python package that helps you work with geospatial data from the [WorldPop project](https://www.worldpop.org/).
+WorldPop offers [global, gridded geo-datasets](https://www.worldpop.org/datacatalog/) on population dynamics, land-cover features, night-light emissions, 
+and several other attributes of human and natural geography. This package streamlines the process of downloading, combining, 
+and cleaning WorldPop data for different geographic regions and years.
 
 ## Key Features
 
-* Fetch data for any part of the world by passing GeoDataFrames, country codes, or bounding boxes.
+* Fetch data for any region on earth by passing GeoDataFrames, country codes, or bounding boxes.
 * Easy handling of annual time-series through integration with [`xarray`](https://docs.xarray.dev/en/stable/).
 * Parallel data downloads with retry mechanism and ability to preview estimated download sizes (dry run).
 * Auto-updating manifest file so you stay up-to-date with WorldPop’s latest available datasets.

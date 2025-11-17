@@ -1,5 +1,5 @@
 __about__ = "Library to help you work with WorldPop data for any region on earth"
-__version__ = '0.2.0'  # beware: this version number is not synced with "pyproject.toml"
+__version__ = '0.3.0'  # beware: not auto-synced with "pyproject.toml"
 __url__ = "https://github.com/lungoruscello/worldpoppy"
 __license__ = "MPL-2.0"
 __author__ = "S. Langenbach"

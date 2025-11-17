@@ -20,6 +20,7 @@ from pathlib import Path
 from socket import gaierror
 from tempfile import NamedTemporaryFile
 
+import backoff
 import pandas as pd
 
 from worldpoppy.config import ASSET_DIR
@@ -27,6 +28,7 @@ from worldpoppy.config import ASSET_DIR
 __all__ = [
     "wp_manifest",
     "wp_manifest_constrained",
+    "build_wp_manifest",
     "get_all_isos",
     "get_annual_product_names",
     "get_static_product_names",
@@ -103,7 +105,7 @@ def wp_manifest(product_name=None, iso3_codes=None, years=None):
         years = [years]
 
     if product_name is not None:
-        is_annual = is_annual_product(product_name)  # will ensure that product exists
+        is_annual = _is_annual_product(product_name)  # will ensure that product exists
         if not is_annual:
             if years is not None:
                 logger.info(
@@ -175,7 +177,7 @@ def wp_manifest_constrained(product_name, iso3_codes, years=None):
     filtered_mdf = wp_manifest(product_name, iso3_codes, years)
 
     # raise an exception if 'years' is None for an annual dataset — and vice versa
-    if is_annual_product(product_name):
+    if _is_annual_product(product_name):
         if years is None:
             raise ValueError(
                 f"'years' argument is required since '{product_name}' is "
@@ -193,7 +195,7 @@ def wp_manifest_constrained(product_name, iso3_codes, years=None):
 
     # raise an informative exception if the requested data product is not
     # available for any requested country and years (where applicable)
-    if is_annual_product(product_name):
+    if _is_annual_product(product_name):
         if isinstance(years, str):
             assert years == 'all'
             assert filtered_mdf.product_name.nunique() == 1
@@ -222,20 +224,23 @@ def wp_manifest_constrained(product_name, iso3_codes, years=None):
     return filtered_mdf
 
 
-def build_wp_manifest(overwrite=False):
+def build_wp_manifest(overwrite=False, ftp_timeout=20):
     """
     Download, clean, and store a global dataset manifest from the WorldPop FTP server.
 
-    If a cleaned manifest already exists locally and is up-to-date (verified via an MD5 hash
-    check), this function does nothing. Otherwise, it downloads the latest WorldPop manifest,
-    parses and processes the data, and stores a cleaned manifest version as a pandas Dataframe
-    in Feather format for future use.
+    If a cleaned manifest already exists locally and is up-to-date (verified via an MD5
+    hash check), this function does nothing. Otherwise, it downloads the latest WorldPop
+    manifest, parses and processes the data, and stores a cleaned manifest version as a
+    pandas Dataframe in Feather format for future use.
 
     Parameters
     ----------
     overwrite : bool, optional
-        If True, forces re-download and reprocessing of the manifest even if the local copy is
-        up-to-date. Default is False.
+        If True, forces re-download and reprocessing of the manifest even if the local copy
+        is up-to-date. Default is False.
+    ftp_timeout : int or None, optional
+        The timeout in seconds for requests sent to the WorldPop FTP server, by default 20.
+        If `None`, network operations can block indefinitely.
 
     Notes
     -----
@@ -243,11 +248,25 @@ def build_wp_manifest(overwrite=False):
       from static datasets. Whether a dataset is annual or static is inferred from the dataset's
       name.
     """
+
+    # check whether we need to build a new manifest
     if _cleaned_manifest_fpath.is_file() and not overwrite:
-        # Check whether the local manifest is up-to-date.
-        # Note: the hash is computed on the raw WorldPop CSV file.
         if _raw_hash_fpath.is_file():
-            if _read_local_manifest_hash() == _fetch_remote_manifest_hash():
+            local_hash = _read_local_manifest_hash()
+
+            # Try to check whether the local manifest is up-to-date.
+            # Note: the hash is computed on the raw WorldPop CSV file.
+            try:
+                remote_hash = _fetch_remote_manifest_hash(ftp_timeout)
+                if remote_hash == local_hash:
+                    return None
+
+            except (ValueError, ftplib.error_reply, ftplib.error_proto, OSError) as e:
+                # FTP is not reachable
+                logger.warning(
+                    f'Could not check for manifest update due to network error: "{e}"\n'
+                    'Proceeding with the cached WorldPop manifest, which may be out-of-date.'
+                )
                 return None
 
     # download the raw manifest CSV from the WorldPop website,
@@ -255,7 +274,7 @@ def build_wp_manifest(overwrite=False):
     with NamedTemporaryFile() as tmp_file:
         logger.warning('Downloading fresh WorldPop data manifest via FTP...')
         tmp_csv_path = Path(tmp_file.name)
-        _worldpop_ftp_download('/assets/wpgpDatasets.csv', tmp_csv_path)
+        _worldpop_ftp_download('/assets/wpgpDatasets.csv', tmp_csv_path, timeout=ftp_timeout)
         _update_local_manifest_hash(tmp_csv_path)  # noqa
         mdf = pd.read_csv(tmp_csv_path)
 
@@ -287,7 +306,7 @@ def build_wp_manifest(overwrite=False):
     mdf['remote_fname'] = [x[-1] for x in mdf.remote_path.str.split('/').values]
 
     # store cleaned manifest for re-use
-    mdf.to_feather(_cleaned_manifest_fpath)
+    mdf.to_feather(_cleaned_manifest_fpath, compression='zstd')
 
     logger.warning(
         f'Cleaned WorldPop data manifest has been stored locally at: {_cleaned_manifest_fpath}'
@@ -442,7 +461,7 @@ def _cached_manifest_load():
     return mdf
 
 
-def is_annual_product(product_name):
+def _is_annual_product(product_name):
     """
     Return True if the requested data product is of the annual type.
     Return False otherwise.
@@ -607,12 +626,19 @@ def _get_file_md5_hash(fpath):
     return hasher.hexdigest()
 
 
+@backoff.on_exception(
+    backoff.expo,
+    (OSError, ftplib.error_temp),  # no point retrying on permanent FTP errors (5xx replies)
+    max_tries=3,
+    jitter=backoff.full_jitter
+)
 def _worldpop_ftp_download(
         remote_fpath,
         local_fpath=None,
         server='ftp.worldpop.org.uk',
         login='anonymous',
-        pwd=''
+        pwd='',
+        timeout=20
 ):
     """
     Download a file from the WorldPop FTP server.
@@ -630,6 +656,11 @@ def _worldpop_ftp_download(
         The FTP login username. The default is 'anonymous'.
     pwd : str, optional
         The FTP login password. The default is an empty string.
+    timeout : int or None, optional
+        The timeout in seconds for all blocking network operations for the entire
+        FTP session, by default 20. This value is passed to the `ftplib.FTP` constructor
+        and applies to the initial connection, login, and all subsequent data transfers.
+        If `None`, operations can block indefinitely.
 
     Returns
     -------
@@ -646,15 +677,17 @@ def _worldpop_ftp_download(
 
     # instantiate an FTP client
     try:
-        ftp_client = ftplib.FTP(server, login, pwd, timeout=20)
+        ftp_client = ftplib.FTP(server, login, pwd, timeout=timeout)
     except gaierror:
         raise ValueError(
-            f"WorldPop FTP server '{server}' is unknown. Please check the server address."
+            f"Could not resolve WorldPop's FTP server '{server}'. "
+            "Please check your internet connection and the server address."
         )
     except Exception as e:
-        raise ValueError(
-            f'Could not connect to the WorldPop FTP server. Error: {e}'
-        )
+        msg = f'An FTP operation failed. Error: {e}'
+        # we must re-raise the exact same error type since backoff
+        # can otherwise not tell whether it is eligible for retry
+        raise type(e)(msg) from e
 
     if local_fpath is None:
         # download the remote file directly into memory
@@ -668,15 +701,21 @@ def _worldpop_ftp_download(
         ftp_client.retrbinary(f"RETR {remote_fpath}", file.write)
 
 
-def _fetch_remote_manifest_hash():
+def _fetch_remote_manifest_hash(ftp_timeout=20):
     """
     Download the latest MD5 hash of the raw WorldPop dataset manifest.
+
+    Parameters
+    ----------
+    ftp_timeout : int or None, optional
+        The timeout in seconds for requests sent to the WorldPop FTP server, by default 20.
+        If `None`, network operations can block indefinitely.
 
     Returns
     -------
     str
     """
-    byte_stream = _worldpop_ftp_download('/assets/wpgpDatasets.md5')
+    byte_stream = _worldpop_ftp_download('/assets/wpgpDatasets.md5', timeout=ftp_timeout)
     result = byte_stream.read().decode('utf-8')
     remote_csv_hash = result.strip().split(' ')[0]
     return remote_csv_hash
