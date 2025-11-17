@@ -206,7 +206,9 @@ class WorldPopDownloader:
 
         return sorted(local_paths)
 
-    @backoff.on_exception(backoff.expo, HTTPError)
+    @backoff.on_exception(
+        backoff.expo, HTTPError, max_tries=5, jitter=backoff.full_jitter
+    )
     def _download_file(
             self,
             remote_path,
@@ -253,8 +255,8 @@ class WorldPopDownloader:
         except Exception as e:
             return DownloadResult(success=False, error=e)
         else:
-            # only after the download has finished do we rename the temporary file to
-            # its proper name. In this way, crashing downloads will  not corrupt the
+            # Only after the download has finished do we rename the temporary file to
+            # its proper name. In this way, crashing downloads will not corrupt the
             # local cache.
             tmp_path.rename(local_path)
             return DownloadResult(success=True)

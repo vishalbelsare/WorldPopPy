@@ -24,7 +24,9 @@ __all__ = [
 
 
 @lru_cache(maxsize=1024)
-@backoff.on_exception(backoff.expo, GeocoderTimedOut, max_tries=5)
+@backoff.on_exception(
+    backoff.expo, GeocoderTimedOut, max_tries=5, jitter=backoff.full_jitter
+)
 def geolocate_name(nomatim_query, to_crs=None):
     """
     Return the geo-coordinate associated with a given location name,
