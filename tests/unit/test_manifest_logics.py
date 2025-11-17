@@ -1,5 +1,11 @@
+import ftplib
+import logging
+from unittest.mock import patch, MagicMock
+
 import numpy as np
 import pytest
+
+from tests.test_utils import no_manifest_update
 
 
 def test_good_year_extraction():
@@ -33,7 +39,7 @@ def test_looks_like_annual_name():
     assert _looks_like_annual_name('foo') is False
 
 
-def test_good_manifest_filter_drop_static():
+def test_manifest_filter_by_all_years_drops_static(no_manifest_update):
     from worldpoppy.manifest import wp_manifest
 
     mdf = wp_manifest()  # full manifest
@@ -42,7 +48,7 @@ def test_good_manifest_filter_drop_static():
     assert np.all(expected.idx == actual.idx)
 
 
-def test_good_manifest_filter_annual_combo():
+def test_manifest_filter_annual_product_success(no_manifest_update):
     from worldpoppy.manifest import wp_manifest
 
     def _check_result():
@@ -65,7 +71,7 @@ def test_good_manifest_filter_annual_combo():
     _check_result()
 
 
-def test_good_manifest_filter_static_combo():
+def test_manifest_filter_static_product_success(no_manifest_update):
     from worldpoppy.manifest import wp_manifest
 
     def _check_result():
@@ -86,7 +92,7 @@ def test_good_manifest_filter_static_combo():
     _check_result()
 
 
-def test_bad_manifest_filters_raise():
+def test_manifest_filter_invalid_inputs_raise(no_manifest_update):
     from worldpoppy.manifest import wp_manifest
 
     with pytest.raises(ValueError):
@@ -99,7 +105,7 @@ def test_bad_manifest_filters_raise():
         wp_manifest(years=1900)
 
 
-def test_incomplete_manifest_coverage_raises():
+def test_manifest_constrained_unavailable_combo_raises(no_manifest_update):
     from worldpoppy.manifest import wp_manifest, wp_manifest_constrained
     eg_prod, eg_iso, eg_year = 'viirs_100m', 'NZL' , 2020
 
@@ -110,3 +116,43 @@ def test_incomplete_manifest_coverage_raises():
     with pytest.raises(ValueError):
         # empty combo (incomplete coverage)
         wp_manifest_constrained(product_name=eg_prod, iso3_codes=eg_iso, years=eg_year)
+
+
+def test_worldpop_ftp_download_retries_on_temp_error(caplog):
+    """
+    Unit test to check whether the @backoff decorator retries
+    on transient FTP errors (ftplib.error_temp, i.e., 4xx).
+    """
+
+    caplog.set_level(logging.DEBUG, logger="backoff")
+
+    # create the temporary error (a 4xx FTP reply)
+    temp_error = ftplib.error_temp("421 Service not available (Mocked Error)")
+
+    # create a "success" object
+    mock_success_client = MagicMock()
+    mock_success_client.retrbinary.return_value = "226 Transfer complete."
+
+    # patch 'ftplib.FTP' *where it is used* (in the manifest module)
+    with patch("worldpoppy.manifest.ftplib.FTP") as mock_ftp_constructor:
+
+        # configure the side_effect to fail twice, then succeed
+        mock_ftp_constructor.side_effect = [
+            temp_error,
+            temp_error,
+            mock_success_client
+        ]
+
+        # call the tested function (downloading to memory)
+        from worldpoppy.manifest import _worldpop_ftp_download
+        _worldpop_ftp_download('/assets/wpgpDatasets.md5', local_fpath=None)
+
+        # check it was called 3 times
+        assert mock_ftp_constructor.call_count == 3
+
+        # check that successful client was the one used for the download
+        mock_success_client.retrbinary.assert_called_once()
+
+        # check that the backoff logger actually logged its retry attempts
+        assert "Backing off" in caplog.text
+        assert caplog.text.count("Backing off") == 2
