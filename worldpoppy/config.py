@@ -1,6 +1,7 @@
 import os
 from multiprocessing import cpu_count
 from pathlib import Path
+import platformdirs
 
 __all__ = [
     "ROOT_DIR",
@@ -13,7 +14,7 @@ __all__ = [
     "get_max_concurrency",
 ]
 
-DEFAULT_CACHE_DIR = Path.home() / ".cache" / "worldpoppy"
+DEFAULT_CACHE_DIR = Path(platformdirs.user_cache_dir(appname="worldpoppy"))
 DEFAULT_MAX_CONCURRENCY = max(1, cpu_count() - 2)
 ROOT_DIR = Path(__file__).parent
 ASSET_DIR = ROOT_DIR / 'assets'

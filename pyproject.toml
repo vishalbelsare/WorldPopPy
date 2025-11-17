@@ -17,6 +17,7 @@ dependencies = [
     "matplotlib",
     "httpx",
     "click>=8.0",
+    "platformdirs",
     "nest_asyncio<2",
     "pqdm>=0.2",
     "tqdm",
