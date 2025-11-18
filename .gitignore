@@ -1,5 +1,6 @@
 worldpoppy/assets/manifest.feather
 worldpoppy/assets/boundaries_ita.gpkg
+worldpoppy/assets/wpgpDatasets.csv
 docs/_build
 ./README_PYPI.md
 *.xcf

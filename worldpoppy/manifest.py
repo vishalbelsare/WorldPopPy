@@ -18,7 +18,6 @@ from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
 from socket import gaierror
-from tempfile import NamedTemporaryFile
 
 import backoff
 import pandas as pd
@@ -40,8 +39,9 @@ FIRST_YEAR = 2000
 
 _year_pattern = re.compile(r'_\d{4}')
 _raw_hash_fpath = ASSET_DIR / 'raw_manifest_hash.txt'
-_last_check_date_fpath = ASSET_DIR / 'last_manifest_check.txt'
+_raw_manifest_fpath = ASSET_DIR / 'wpgpDatasets.csv'
 _cleaned_manifest_fpath = ASSET_DIR / 'manifest.feather'
+_last_check_date_fpath = ASSET_DIR / 'last_manifest_check.txt'
 
 logger = logging.getLogger(__name__)
 
@@ -225,7 +225,7 @@ def wp_manifest_constrained(product_name, iso3_codes, years=None):
     return filtered_mdf
 
 
-def build_wp_manifest(overwrite=False, ftp_timeout=20):
+def build_wp_manifest(overwrite=False, ftp_timeout=20, _debug_keep_raw_csv=False):
     """
     Download, clean, and store a global dataset manifest from the WorldPop FTP server.
 
@@ -242,6 +242,9 @@ def build_wp_manifest(overwrite=False, ftp_timeout=20):
     ftp_timeout : int or None, optional
         The timeout in seconds for requests sent to the WorldPop FTP server, by default 20.
         If `None`, network operations can block indefinitely.
+    _debug_keep_raw_csv : bool, optional
+        For debugging. If True, the uncleaned, raw manifest file is kept on disk. If False,
+        this file is deleted.
 
     Notes
     -----
@@ -271,14 +274,14 @@ def build_wp_manifest(overwrite=False, ftp_timeout=20):
                 )
                 return None
 
-    # download the raw manifest CSV from the WorldPop website,
-    # ingest the manifest using pandas, and update the local hash
-    with NamedTemporaryFile() as tmp_file:
-        logger.warning('Downloading fresh WorldPop data manifest via FTP...')
-        tmp_csv_path = Path(tmp_file.name)
-        _worldpop_ftp_download('/assets/wpgpDatasets.csv', tmp_csv_path, timeout=ftp_timeout)
-        _update_local_manifest_hash(tmp_csv_path)  # noqa
-        mdf = pd.read_csv(tmp_csv_path)
+    # download the raw manifest CSV from the WorldPop website
+    # and update the local manifest hash
+    logger.warning('Downloading fresh WorldPop data manifest via FTP...')
+    _worldpop_ftp_download('/assets/wpgpDatasets.csv', _raw_manifest_fpath, timeout=ftp_timeout)
+    _update_local_manifest_hash(_raw_manifest_fpath)  # noqa
+
+    # ingest the raw manifest and clean it
+    mdf = pd.read_csv(_raw_manifest_fpath)
 
     # clean the manifest columns
     mdf.columns = [
@@ -315,6 +318,9 @@ def build_wp_manifest(overwrite=False, ftp_timeout=20):
     )
 
     _last_check_date_fpath.touch(exist_ok=True)
+
+    if not _debug_keep_raw_csv:
+        _raw_manifest_fpath.unlink()
 
     return mdf
 
