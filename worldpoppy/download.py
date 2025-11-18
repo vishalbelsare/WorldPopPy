@@ -109,12 +109,13 @@ class WorldPopDownloader:
         self.directory = Path(directory) if directory is not None else get_cache_dir()
 
     def download(
-            self,
-            product_name,
-            iso3_codes,
-            years=None,
-            skip_download_if_exists=True,
-            dry_run=False
+        self,
+        product_name,
+        iso3_codes,
+        years=None,
+        skip_download_if_exists=True,
+        dry_run=False,
+        chunk_size=1024**2,
     ):
         """
         Asynchronously download a collection of country-specific WorldPop rasters.
@@ -136,6 +137,10 @@ class WorldPopDownloader:
             If True, only check how many files would need to be downloaded if `dry_run`
             was False. Report the number and size of required file downloads, but do not
             actually fetch or return any data.
+        chunk_size : int, optional, default=1MB
+            The size (in bytes) of chunks to read/write during download. Larger chunks
+            may improve performance, especially on systems with real-time file scanning
+            (e.g., antivirus).
 
         Returns
         -------
@@ -160,7 +165,10 @@ class WorldPopDownloader:
         remote_paths = filtered_mdf['remote_path'].tolist()
 
         # prepare arguments for parallel processing
-        args = [(r, l, skip_download_if_exists) for r, l in zip(remote_paths, local_paths)]
+        args = [
+            (r, l, skip_download_if_exists, chunk_size)
+            for r, l in zip(remote_paths, local_paths)
+        ]
 
         if dry_run:
             print("Dry run: calculating number and size of files to download...\n")
@@ -210,10 +218,11 @@ class WorldPopDownloader:
         backoff.expo, HTTPError, max_tries=5, jitter=backoff.full_jitter
     )
     def _download_file(
-            self,
-            remote_path,
-            local_path,
-            skip_if_exists=True
+        self,
+        remote_path,
+        local_path,
+        skip_if_exists=True,
+        chunk_size=1024*2
     ):
         """
         Download a WorldPop raster with automatic retries.
@@ -226,6 +235,10 @@ class WorldPopDownloader:
             The local file path where the raster will be saved.
         skip_if_exists : bool, optional, default=True
             Whether to skip the download if the file already exists locally.
+        chunk_size : int, optional, default=1MB
+            The size (in bytes) of chunks to read/write during download.
+            Larger chunks may improve performance, especially on systems
+            with real-time file scanning (e.g., antivirus).
 
         Returns
         -------
@@ -246,9 +259,10 @@ class WorldPopDownloader:
             with open(tmp_path, "wb+") as f:
                 with httpx.stream("GET", remote_url) as response:
                     total = int(response.headers["Content-Length"])
-                    with tqdm(total=total, unit="B", unit_scale=True, leave=False) as pbar:
+                    pbar = tqdm(total=total, unit="B", unit_scale=True, leave=False)
+                    with pbar:
                         pbar.set_description(f"Downloading {remote_fname}...")
-                        for chunk in response.iter_raw():
+                        for chunk in response.iter_raw(chunk_size=chunk_size):
                             f.write(chunk)
                             pbar.update(len(chunk))
                     response.raise_for_status()
@@ -303,7 +317,7 @@ class WorldPopDownloader:
             return DownloadResult(success=True, value=size)
 
     def _build_local_fpath(self, product_name, iso3, year=None):
-        """Return the local file path used to store a single downloaded Worldpop raster"""
+        """Return the local file path used to store a single downloaded WorldPop raster"""
 
         if pd.isnull(year):  # catches both None and np.NaN
             fname = f'{product_name}_{iso3}.tif'

@@ -78,6 +78,7 @@ def wp_raster(
     mask_and_scale=False,
     other_read_kwargs=None,
     res=None,
+    download_chunk_size=1024**2,
     download_dry_run=False,
     to_crs=None,
     **merge_kwargs,
@@ -131,6 +132,10 @@ def wp_raster(
         raster is used. If a single value is passed, output pixels will be
         square. This argument is passed to
         `rioxarray.merge.merge_arrays <https://corteva.github.io/rioxarray/stable/rioxarray.html#rioxarray.merge.merge_arrays>`_.
+    download_chunk_size : int, optional, default=1MB
+        The size (in bytes) of chunks to read/write during raster downloads.
+        Larger chunks may improve performance, especially on systems with
+        real-time file scanning (e.g., antivirus).
     download_dry_run : bool, optional, default=False
         If True, only check how many raster files would need to be downloaded
         from WorldPop if `download_dry_run` was False. Report the number and
@@ -212,6 +217,7 @@ def wp_raster(
             years,
             skip_download_if_exists,
             dry_run=download_dry_run,
+            chunk_size=download_chunk_size,
         )
 
         if download_dry_run:
