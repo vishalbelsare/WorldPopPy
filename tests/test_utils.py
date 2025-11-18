@@ -40,10 +40,12 @@ def isolated_manifest_assets(monkeypatch, tmp_path):
 
     new_hash_path = tmp_path / "raw_manifest_hash.txt"
     new_manifest_path = tmp_path / "manifest.feather"
+    new_check_date_path = tmp_path / "last_manifest_check.txt"
 
     # patch the module-level variables inside manifest.py
     monkeypatch.setattr(manifest, "_raw_hash_fpath", new_hash_path)
     monkeypatch.setattr(manifest, "_cleaned_manifest_fpath", new_manifest_path)
+    monkeypatch.setattr(manifest, "_last_check_date_fpath", new_check_date_path)
 
     # yield the temp directory path so the test can inspect it
     yield tmp_path
@@ -69,7 +71,6 @@ def isolated_raster_cache(monkeypatch, tmp_path):
 
     # yield the temp cache path so the test can inspect it
     yield new_cache_dir
-
 
 
 def is_online():
