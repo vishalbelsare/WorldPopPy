@@ -33,13 +33,14 @@ __all__ = [
     "get_annual_product_names",
     "get_static_product_names",
     "get_all_dataset_names",
-    "extract_year",
+    "get_last_manifest_check_date",
 ]
 
 FIRST_YEAR = 2000
 
 _year_pattern = re.compile(r'_\d{4}')
 _raw_hash_fpath = ASSET_DIR / 'raw_manifest_hash.txt'
+_last_check_date_fpath = ASSET_DIR / 'last_manifest_check.txt'
 _cleaned_manifest_fpath = ASSET_DIR / 'manifest.feather'
 
 logger = logging.getLogger(__name__)
@@ -259,9 +260,10 @@ def build_wp_manifest(overwrite=False, ftp_timeout=20):
             try:
                 remote_hash = _fetch_remote_manifest_hash(ftp_timeout)
                 if remote_hash == local_hash:
+                    _last_check_date_fpath.touch(exist_ok=True)
                     return None
 
-            except (ValueError, ftplib.error_reply, ftplib.error_proto, OSError) as e:
+            except (ConnectionError, ftplib.error_reply, ftplib.error_proto, OSError) as e:
                 # FTP is not reachable
                 logger.warning(
                     f'Could not check for manifest update due to network error: "{e}"\n'
@@ -311,6 +313,8 @@ def build_wp_manifest(overwrite=False, ftp_timeout=20):
     logger.warning(
         f'Cleaned WorldPop data manifest has been stored locally at: {_cleaned_manifest_fpath}'
     )
+
+    _last_check_date_fpath.touch(exist_ok=True)
 
     return mdf
 
@@ -423,6 +427,35 @@ def extract_year(dataset_name):
         raise ValueError(bad_format_msg)
 
     return year
+
+
+def get_last_manifest_check_date(as_string=False):
+    """
+    Return the timestamp of the last successful manifest check.
+
+    This function reads the file modification time from the internal
+    `_last_check_date_fpath` file.
+
+    Parameters
+    ----------
+    as_string : bool, optional
+        If True, return the timestamp as a formatted string.
+        If False (default), return as a `datetime.datetime` object.
+
+    Returns
+    -------
+    datetime.datetime or str
+        The timestamp of the last successful manifest check, either
+        as a datetime object or a formatted string.
+    """
+
+    ts = _last_check_date_fpath.stat().st_mtime
+    dt = datetime.fromtimestamp(ts)
+
+    if not as_string:
+        return dt
+
+    return dt.strftime(' %Y-%m-%d %H:%M:%S')
 
 
 @lru_cache()
@@ -671,7 +704,7 @@ def _worldpop_ftp_download(
 
     Raises
     ------
-    ValueError
+    ConnectionError
         If there is an issue connecting to the FTP server.
     """
 
@@ -679,14 +712,14 @@ def _worldpop_ftp_download(
     try:
         ftp_client = ftplib.FTP(server, login, pwd, timeout=timeout)
     except gaierror:
-        raise ValueError(
+        raise ConnectionError(
             f"Could not resolve WorldPop's FTP server '{server}'. "
             "Please check your internet connection and the server address."
         )
     except Exception as e:
         msg = f'An FTP operation failed. Error: {e}'
         # we must re-raise the exact same error type since backoff
-        # can otherwise not tell whether it is eligible for retry
+        # can otherwise not tell whether the error is eligible for retry
         raise type(e)(msg) from e
 
     if local_fpath is None:
