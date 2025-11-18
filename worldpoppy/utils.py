@@ -1,7 +1,9 @@
 """
 Collection of various helper functions.
 """
-
+import io
+import logging
+from contextlib import contextmanager, redirect_stdout
 from functools import lru_cache
 from typing import Tuple
 
@@ -20,6 +22,7 @@ __all__ = [
     "plot_country_borders",
     "plot_location_markers",
     "module_available",
+    "log_info_context"
 ]
 
 
@@ -199,3 +202,41 @@ def module_available(module_name):
         return False
     else:
         return True
+
+
+@contextmanager
+def log_info_context(logger):
+    """
+    Context manager to optionally redirect `print` statements to a logger.
+
+    If the logger's effective level is WARNING or higher (default),
+    `print()` statements execute normally. On lower logging levels,
+    `print()` outputs are captured and sent to logger.info() instead.
+
+    Parameters
+    ----------
+    logger : logging.Logger
+        The logger instance to use (e.g., from `logging.getLogger(__name__)`).
+    """
+    effective_level = logger.getEffectiveLevel()
+
+    if effective_level <= logging.INFO:
+        string_buffer = io.StringIO()
+
+        try:
+            # use the thread-safe stdout redirector
+            with redirect_stdout(string_buffer):
+                yield  # user's `print()` runs here
+        finally:
+            # after the block, get the captured text
+            captured_message = string_buffer.getvalue().strip()
+            if captured_message:
+                # log the captured text instead of printing
+                logger.info(captured_message)
+
+    else:
+        # logger is not set to INFO, so we don't interfere
+        try:
+            yield
+        finally:
+            pass  # nothing to clean up

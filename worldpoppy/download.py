@@ -22,7 +22,7 @@ Main methods
         Delete all files in the WorldPop local cache directory, with optional dry-run.
 
 """
-
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import ClassVar, Optional, Any
@@ -44,6 +44,8 @@ __all__ = [
     "WorldPopDownloader",
     "purge_cache",
 ]
+
+logger = logging.getLogger(__name__)
 
 
 class DownloadError(Exception):
@@ -164,13 +166,14 @@ class WorldPopDownloader:
         local_paths = [self._build_local_fpath(*tup) for tup in data]
         remote_paths = filtered_mdf['remote_path'].tolist()
 
-        # prepare arguments for parallel processing
-        args = [
-            (r, l, skip_download_if_exists, chunk_size)
-            for r, l in zip(remote_paths, local_paths)
-        ]
-
         if dry_run:
+            # prepare arguments for parallel processing
+            # (no chunk size needed)
+            args = [
+                (r, l, skip_download_if_exists)
+                for r, l in zip(remote_paths, local_paths)
+            ]
+
             print("Dry run: calculating number and size of files to download...\n")
 
             res = pqdm(
@@ -195,6 +198,13 @@ class WorldPopDownloader:
             print(f"Total est. download size: {round(total_size / 1e6, 2):,} MB")
 
         else:
+            # prepare arguments for parallel processing
+            # (chunk size now needed)
+            args = [
+                (r, l, skip_download_if_exists, chunk_size)
+                for r, l in zip(remote_paths, local_paths)
+            ]
+
             res = pqdm(
                 args,
                 self._download_file,  # noqa
@@ -279,7 +289,7 @@ class WorldPopDownloader:
             self,
             remote_path,
             local_path,
-            skip_download_if_exists=True
+            skip_download_if_exists=True,
     ):
         """
         Get the required download size for one file in bytes using a HEAD request.
