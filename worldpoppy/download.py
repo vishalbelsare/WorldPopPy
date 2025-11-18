@@ -37,6 +37,8 @@ from tqdm.auto import tqdm
 
 from worldpoppy.config import *
 from worldpoppy.manifest import wp_manifest_constrained
+from worldpoppy.utils import log_info_context
+
 
 __all__ = [
     "DownloadSizeCheckError",
@@ -167,35 +169,36 @@ class WorldPopDownloader:
         remote_paths = filtered_mdf['remote_path'].tolist()
 
         if dry_run:
-            # prepare arguments for parallel processing
-            # (no chunk size needed)
-            args = [
-                (r, l, skip_download_if_exists)
-                for r, l in zip(remote_paths, local_paths)
-            ]
+            with log_info_context(logger):
+                # prepare arguments for parallel processing
+                # (no chunk size needed)
+                args = [
+                    (r, l, skip_download_if_exists)
+                    for r, l in zip(remote_paths, local_paths)
+                ]
 
-            print("Dry run: calculating number and size of files to download...\n")
+                print("Dry run: calculating number and size of files to download...\n")
 
-            res = pqdm(
-                args,
-                self._get_required_file_download_size,  # noqa
-                n_jobs=get_max_concurrency() * 4,  # these jobs are cheap
-                argument_type="args",
-                desc="Checking download sizes...",
-                leave=False,
-            )
-
-            if errors := [r.error for r in res if not r.success]:
-                formatted = '\n'.join(f"- {e}" for e in errors)
-                raise DownloadSizeCheckError(
-                    f"{len(errors)} HEAD request(s) failed. Details:\n{formatted}"
+                res = pqdm(
+                    args,
+                    self._get_required_file_download_size,  # noqa
+                    n_jobs=get_max_concurrency() * 4,  # these jobs are cheap
+                    argument_type="args",
+                    desc="Checking download sizes...",
+                    leave=False,
                 )
 
-            total_size = sum(r.value for r in res if r.success and r.value > 0)
-            total_files = sum(1 for r in res if r.success and r.value > 0)
+                if errors := [r.error for r in res if not r.success]:
+                    formatted = '\n'.join(f"- {e}" for e in errors)
+                    raise DownloadSizeCheckError(
+                        f"{len(errors)} HEAD request(s) failed. Details:\n{formatted}"
+                    )
 
-            print(f"No. of files to download: {total_files}")
-            print(f"Total est. download size: {round(total_size / 1e6, 2):,} MB")
+                total_size = sum(r.value for r in res if r.success and r.value > 0)
+                total_files = sum(1 for r in res if r.success and r.value > 0)
+
+                print(f"No. of files to download: {total_files}")
+                print(f"Total est. download size: {round(total_size / 1e6, 2):,} MB")
 
         else:
             # prepare arguments for parallel processing
