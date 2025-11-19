@@ -30,10 +30,17 @@ worldpoppy.borders module
    :undoc-members:
    :show-inheritance:
 
-worldpoppy.utils module
-=======================
+worldpoppy.func_utils module
+============================
 
-.. automodule:: worldpoppy.utils
+.. automodule:: worldpoppy.func_utils
+   :members: geolocate_name
+   :show-inheritance:
+
+worldpoppy.plot_utils module
+============================
+
+.. automodule:: worldpoppy.plot_utils
    :members:
    :undoc-members:
    :show-inheritance:
