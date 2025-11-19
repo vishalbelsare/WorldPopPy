@@ -42,7 +42,7 @@ from worldpoppy.borders import load_country_borders
 from worldpoppy.config import *
 from worldpoppy.download import WorldPopDownloader
 from worldpoppy.manifest import extract_year
-from worldpoppy.utils import module_available, geolocate_name
+from worldpoppy.func_utils import module_available, geolocate_name
 
 logger = logging.getLogger(__name__)
 

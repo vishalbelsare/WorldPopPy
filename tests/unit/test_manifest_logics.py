@@ -23,13 +23,23 @@ def test_bad_year_extraction_raises():
 
     with pytest.raises(ValueError):
         extract_year('bad_name_1889')
+        extract_year('bad_name_1999')  # first supported year of any dataset is 2000
 
 
-def test_year_stripping():
-    from worldpoppy.manifest import _strip_year
-    assert _strip_year('some_dataset_2020') == 'some_dataset'
-    assert _strip_year('some_dataset_2020_constrained') == 'some_dataset_constrained'
+def test_year_stripping_for_product_name():
+    from worldpoppy.manifest import _strip_year_from_product_name
+    assert _strip_year_from_product_name('some_dataset_2020') == 'some_dataset'
+    assert _strip_year_from_product_name('some_dataset_2020_constrained') == 'some_dataset_constrained'
 
+
+def test_year_stripping_for_note():
+    from worldpoppy.manifest import _strip_years_from_note
+    assert _strip_years_from_note('total people in 2020') == 'total people'
+    assert _strip_years_from_note('area edges 2000') == 'area edges'
+
+    # we don't remove 4-digit expressions that would imply years before 2000
+    assert _strip_years_from_note('total people in 1999') == 'total people in 1999'
+    assert _strip_years_from_note('area edges 1889') == 'area edges 1889'
 
 def test_looks_like_annual_name():
     from worldpoppy.manifest import _looks_like_annual_name
@@ -103,6 +113,9 @@ def test_manifest_filter_invalid_inputs_raise(no_manifest_update):
 
     with pytest.raises(ValueError):
         wp_manifest(years=1900)
+
+    with pytest.raises(ValueError, match="but not both"):
+        wp_manifest(product_name='ppp', keyword='pop')
 
 
 def test_manifest_constrained_unavailable_combo_raises(no_manifest_update):

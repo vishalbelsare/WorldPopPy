@@ -13,6 +13,7 @@ import ftplib
 import hashlib
 import logging
 import re
+import sys
 from datetime import datetime
 from functools import lru_cache
 from io import BytesIO
@@ -23,11 +24,15 @@ import backoff
 import pandas as pd
 
 from worldpoppy.config import ASSET_DIR
+from worldpoppy.func_utils import log_info_context
+
+_IS_NOTEBOOK = 'ipykernel' in sys.modules
 
 __all__ = [
     "wp_manifest",
     "wp_manifest_constrained",
     "build_wp_manifest",
+    "show_supported_data_products",
     "get_all_isos",
     "get_annual_product_names",
     "get_static_product_names",
@@ -37,7 +42,9 @@ __all__ = [
 
 FIRST_YEAR = 2000
 
-_year_pattern = re.compile(r'_\d{4}')
+_product_year_pattern = re.compile(r'_\d{4}')
+_note_year_pattern1 = re.compile(r'\b(20\d{2})\b')
+_note_year_pattern2 = re.compile(r'\b(in\s+20\d{2})\b')
 _raw_hash_fpath = ASSET_DIR / 'raw_manifest_hash.txt'
 _raw_manifest_fpath = ASSET_DIR / 'wpgpDatasets.csv'
 _cleaned_manifest_fpath = ASSET_DIR / 'manifest.feather'
@@ -46,26 +53,31 @@ _last_check_date_fpath = ASSET_DIR / 'last_manifest_check.txt'
 logger = logging.getLogger(__name__)
 
 
-def wp_manifest(product_name=None, iso3_codes=None, years=None):
+def wp_manifest(product_name=None, iso3_codes=None, years=None, keyword=None):
     """
     Load the cleaned WorldPop manifest from local storage. Optionally filter the
-    manifest by product name, country codes, or years (annual products only).
+    manifest by product name, a search keyword, country codes, or years.
 
     Ensures the local manifest file is up-to-date by calling `build_wp_manifest()`.
 
     Parameters
     ----------
     product_name : str, optional
-        The name of the WorldPop product for which to retain manifest entries.
+        The *exact* name of the WorldPop product for which to retain manifest
+        entries. Mutually exclusive with 'keyword'.
     iso3_codes : str or List[str], optional
         One or more three-letter ISO codes indicating the countries for which to
         retain manifest entries.
     years : int or List[int] or str, optional
         For annual data products, either one or more years (int or List[int]) for
         which to retain manifest entries or the 'all' keyword (str) indicating that
-        all available years for annual datasets should be retained. For static data
-        products, this argument must be None (default). Passing any other value
+        all available years for annual datasets should be retained. To retain static
+        data products, this argument must be None (default). Passing any other value
         will drop manifest entries for static datasets.
+    keyword : str, optional
+        A search term to filter data products. This will perform a case-insensitive
+        search on both the 'product_name' and 'notes' fields. Mutually exclusive
+        with 'product_name'.
 
     Returns
     -------
@@ -95,8 +107,13 @@ def wp_manifest(product_name=None, iso3_codes=None, years=None):
     # load the full manifest
     mdf = _cached_manifest_load()
 
+    if product_name is not None and keyword is not None:
+        raise ValueError(
+            "Please provide either `product_name` or `keyword`, but not both"
+        )
+
     # handle the no-filter case
-    if product_name is None and iso3_codes is None and years is None:
+    if product_name is None and keyword is None and iso3_codes is None and years is None:
         return mdf
 
     if isinstance(iso3_codes, str):
@@ -105,15 +122,23 @@ def wp_manifest(product_name=None, iso3_codes=None, years=None):
     if isinstance(years, int):
         years = [years]
 
-    if product_name is not None:
-        is_annual = _is_annual_product(product_name)  # will ensure that product exists
-        if not is_annual:
-            if years is not None:
-                logger.info(
-                    f"Ignoring the 'years' argument since '{product_name}' is a static WorldPop product"
-                )
-                years = None
-        mdf = mdf[mdf['product_name'] == product_name].copy()
+    with log_info_context(logger):
+        if product_name is not None:
+            is_annual = _is_annual_product(product_name)  # will ensure product exists
+            if not is_annual:
+                if years is not None:
+                    print(
+                        f"Ignoring the 'years' argument since '{product_name}' "
+                        f"is a static WorldPop product"
+                    )
+                    years = None
+            mdf = mdf[mdf['product_name'] == product_name].copy()
+
+        elif keyword is not None:
+            mdf = _filter_manifest_by_keyword(mdf, keyword)
+            if mdf.empty:
+                print(f"No data products found matching the keyword: '{keyword}'")
+                return mdf
 
     if iso3_codes is not None:
         _validate_isos(iso3_codes)
@@ -243,8 +268,8 @@ def build_wp_manifest(overwrite=False, ftp_timeout=20, _debug_keep_raw_csv=False
         The timeout in seconds for requests sent to the WorldPop FTP server, by default 20.
         If `None`, network operations can block indefinitely.
     _debug_keep_raw_csv : bool, optional
-        For debugging. If True, the uncleaned, raw manifest file is kept on disk. If False,
-        this file is deleted.
+        For debugging. If True, the uncleaned, raw manifest file ('wpgpDatasets.csv') is
+        kept in the asset directory (`{_raw_manifest_fpath}`). If False, this file is deleted.
 
     Notes
     -----
@@ -268,9 +293,12 @@ def build_wp_manifest(overwrite=False, ftp_timeout=20, _debug_keep_raw_csv=False
 
             except (ConnectionError, ftplib.error_reply, ftplib.error_proto, OSError) as e:
                 # FTP is not reachable
+                last_check_str = get_last_manifest_check_date(as_string=True)
                 logger.warning(
-                    f'Could not check for manifest update due to network error: "{e}"\n'
-                    'Proceeding with the cached WorldPop manifest, which may be out-of-date.'
+                    f'Could not check for manifest update due to network error. '
+                    'Proceeding with the cached manifest, which may be out-of-date '
+                    f'(last update check performed on {last_check_str}).\n'
+                    f'Network error was: "{e}"\n'
                 )
                 return None
 
@@ -301,7 +329,7 @@ def build_wp_manifest(overwrite=False, ftp_timeout=20, _debug_keep_raw_csv=False
     # name. For annual datasets, this is the dataset name with year identifier removed.
     mask = mdf.is_annual
     mdf['product_name'] = mdf.dataset_name
-    mdf.loc[mask, 'product_name'] = mdf.loc[mask, 'dataset_name'].apply(_strip_year)
+    mdf.loc[mask, 'product_name'] = mdf.loc[mask, 'dataset_name'].apply(_strip_year_from_product_name)
 
     # extract the year for all annual raster datasets
     mdf['year'] = None
@@ -323,6 +351,118 @@ def build_wp_manifest(overwrite=False, ftp_timeout=20, _debug_keep_raw_csv=False
         _raw_manifest_fpath.unlink()
 
     return mdf
+
+
+def show_supported_data_products(iso3_codes=None, years=None, keyword=None, static_only=False):
+    """
+    Display supported WorldPop data products, with optional filtering.
+
+    Parameters
+    ----------
+    iso3_codes : str or List[str], optional
+        One or more three-letter ISO codes indicating the countries for which to
+        show supported data products.
+    years : int or List[int] or str, optional
+        For annual data products, either one or more years (int or List[int]) for
+        which to show results or the 'all' keyword (str) to implicitly drop
+        static data products.
+    keyword : str, optional
+        A search term to filter products. This will perform a case-insensitive
+        search on both the 'product_name' and 'notes' fields.
+    static_only : bool, optional
+        If True, only static data products will be shown.
+    Returns
+    -------
+    None
+        This function prints to the console or notebook.
+    """
+
+    # infer whether we likely are in a Jupyter notebook
+    try:
+        from IPython.display import display, HTML  # noqa
+        _likely_notebook = 'ipykernel' in sys.modules
+    except ImportError:
+        _likely_notebook = False
+
+    if static_only and years is not None:
+        raise ValueError("You cannot provide `years` when `static_only` is True.")
+
+    last_check_str = get_last_manifest_check_date(as_string=True)
+    print(f"Data manifest was last checked for updates on: {last_check_str}.\n")
+
+    mdf = wp_manifest(
+        iso3_codes=iso3_codes,
+        years=years,
+        keyword=keyword,
+    )
+
+    if static_only:
+        mdf = mdf[mdf['is_annual'] == False]
+
+    if mdf.empty:
+        print("No data products found matching the specified filters.")
+        return
+
+    # keep only one note for each product name
+    products = (
+        mdf[['product_name', 'notes', 'is_annual']]
+        .drop_duplicates(subset='product_name')
+        .set_index('product_name')
+        .sort_index()
+    )
+
+    # remove annual identifiers from the resulting 'unique' notes
+    products['notes'] = products['notes'].apply(_strip_years_from_note)
+
+    if any([iso3_codes, years, keyword]):
+        print("Showing unique products matching filters:\n")
+
+    # use pandas styling to left-align text for readability
+    styled = products.style.set_properties(
+        **{'text-align': 'left', 'white-space': 'pre-wrap'}
+    )
+    styled = styled.set_table_styles(
+        [dict(selector='th', props=[('text-align', 'left')])]
+    )
+
+    if _likely_notebook:  # noqa
+        display(styled)  # noqa
+    else:
+        from tabulate import tabulate
+        print(tabulate(products, headers='keys', tablefmt='psql'))
+
+
+def _filter_manifest_by_keyword(mdf, keyword=None):
+    """
+    Filter a manifest DataFrame by a keyword.
+
+    Performs a case-insensitive search on the 'product_name' and 'notes'
+    columns. If the keyword is None or empty, the original DataFrame
+    is returned.
+
+    Parameters
+    ----------
+    mdf : pandas.DataFrame
+        The manifest DataFrame to filter (must contain 'product_name'
+        and 'notes' columns).
+    keyword : str, optional
+        The search term. If None or empty, no filtering is applied.
+
+    Returns
+    -------
+    pandas.DataFrame
+        The filtered manifest DataFrame. May be empty if no matches are found.
+    """
+
+    if not keyword:
+        return mdf
+
+    keyword_lower = keyword.lower()
+
+    # filter on either index (product_name) or the 'notes' column
+    key_in_name = mdf['product_name'].str.lower().str.contains(keyword_lower)
+    key_in_notes = mdf['notes'].str.lower().str.contains(keyword_lower)
+    return mdf[key_in_name | key_in_notes]
 
 
 @lru_cache()
@@ -416,10 +556,10 @@ def extract_year(dataset_name):
     """
     bad_format_msg = (
         f"Bad format ('{dataset_name}'). Name of an annual dataset must "
-        "contain exactly one valid year identifier. Perhaps you "
+        "contain exactly one valid year identifier."
     )
 
-    matched = _year_pattern.findall(dataset_name)
+    matched = _product_year_pattern.findall(dataset_name)
 
     if len(matched) != 1:
         # annual datasets must contain exactly one valid year identifier
@@ -461,7 +601,7 @@ def get_last_manifest_check_date(as_string=False):
     if not as_string:
         return dt
 
-    return dt.strftime(' %Y-%m-%d %H:%M:%S')
+    return dt.strftime('%Y-%m-%d %H:%M:%S')
 
 
 @lru_cache()
@@ -601,7 +741,7 @@ def _validate_years(years):
             )
 
 
-def _strip_year(dataset_name):
+def _strip_year_from_product_name(dataset_name):
     """
     Strip the year identifier from the name of an annual WorldPop dataset.
 
@@ -618,6 +758,33 @@ def _strip_year(dataset_name):
     year = extract_year(dataset_name)
     stripped = dataset_name.replace(f'_{year}', '')
     return stripped
+
+
+def _strip_years_from_note(note_str):
+    """
+    Remove annual references like ' 2020' or 'in 2020' from a product note.
+
+    Parameters
+    ----------
+    note_str : str
+        The official WorldPop product note (data description)
+
+    Returns
+    -------
+    str
+        The product note with annual references removed.
+    """
+    if not isinstance(note_str, str):
+        return note_str
+
+    # run the specific "in YYYY" pattern first
+    no_years = _note_year_pattern2.sub('', note_str)
+
+    # run the general " YYYY" pattern on the result
+    no_years = _note_year_pattern1.sub('', no_years)
+
+    # clean up potential double spaces and strip
+    return " ".join(no_years.split()).strip()
 
 
 def _looks_like_annual_name(dataset_name):

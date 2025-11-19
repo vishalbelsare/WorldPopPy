@@ -37,7 +37,7 @@ from tqdm.auto import tqdm
 
 from worldpoppy.config import *
 from worldpoppy.manifest import wp_manifest_constrained
-from worldpoppy.utils import log_info_context
+from worldpoppy.func_utils import log_info_context
 
 
 __all__ = [
